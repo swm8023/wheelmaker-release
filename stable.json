@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "version": "v1.1",
+  "publishedAt": "2026-07-16T17:59:07.197Z",
+  "sourceSha": "c7c230076c0e13fab01291b8cb60f5872540c693",
+  "deploy": {
+    "mjsUrl": "https://raw.githubusercontent.com/swm8023/wheelmaker-release/9a130de0ffb338f60c9f9586e91d86f3aa03f91f/deploy.mjs",
+    "mjsSha256": "0173b27466557ba065a75fb34dcb887943c5ce6cf5c83c516146a031e5e439ea",
+    "coreUrl": "https://raw.githubusercontent.com/swm8023/wheelmaker-release/9a130de0ffb338f60c9f9586e91d86f3aa03f91f/deploy-core.mjs",
+    "coreSha256": "f3a946368ec714553f733948bb9463b2d7773c9728915cc81d36058a7f605f2e"
+  },
+  "release": {
+    "manifestUrl": "https://github.com/swm8023/wheelmaker-release/releases/download/v1.1/release-manifest.json",
+    "manifestSha256": "da7800e353e434ec139f6c4c1c0132af3fbfcca74619ccb28265201ae0a292aa"
+  },
+  "desktopExe": {
+    "version": "v1.1",
+    "url": "https://github.com/swm8023/wheelmaker-release/releases/download/v1.1/WheelMakerDesktop.exe",
+    "sha256": "4039c098883b790fe30e8549ee1580b867d7a2f834aacd0f31a1f7d13a2078d6"
+  }
+}
