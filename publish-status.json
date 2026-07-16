@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "state": "running",
+  "state": "succeeded",
   "phase": "updating-stable",
   "version": "v1.1",
   "sourceSha": "c7c230076c0e13fab01291b8cb60f5872540c693",
   "publisher": "local",
   "startedAt": "2026-07-16T17:58:26.670Z",
-  "updatedAt": "2026-07-16T17:59:54.082Z"
+  "updatedAt": "2026-07-16T17:59:58.133Z"
 }
