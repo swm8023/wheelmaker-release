@@ -1,31 +1,31 @@
 {
   "schema": 1,
-  "version": "v1.2",
-  "publishedAt": "2026-07-17T01:12:40.454Z",
-  "sourceSha": "5f40781bca27e5cf762eb6a37b6533a6b4fbb189",
+  "version": "v1.3",
+  "publishedAt": "2026-07-17T01:19:10.124Z",
+  "sourceSha": "fdc460b9019fe16b4c077f9c2f2cd4c3ab877e24",
   "deploy": {
-    "mjsUrl": "https://raw.githubusercontent.com/swm8023/wheelmaker-release/271091a51a622a8fe80b63afee89790b1ffaa778/deploy.mjs",
+    "mjsUrl": "https://raw.githubusercontent.com/swm8023/wheelmaker-release/90317b095de258be8ab91965ffe44d5e14037635/deploy.mjs",
     "mjsSha256": "41fe95f7b45e2292155b2612b46c277e02bb00c1db12e9499a25a1235960080a",
-    "coreUrl": "https://raw.githubusercontent.com/swm8023/wheelmaker-release/271091a51a622a8fe80b63afee89790b1ffaa778/deploy-core.mjs",
-    "coreSha256": "6198fe99ee12ffac8d8d59c706ada4ff39d66e46419ef0fbb9895da7cce8b598"
+    "coreUrl": "https://raw.githubusercontent.com/swm8023/wheelmaker-release/90317b095de258be8ab91965ffe44d5e14037635/deploy-core.mjs",
+    "coreSha256": "84c8f3de036bd84702ec1ee4eb67cc410fe0c97fd97b209ea0839f6e68a7e6a9"
   },
   "release": {
-    "manifestUrl": "https://github.com/swm8023/wheelmaker-release/releases/download/v1.2/release-manifest.json",
-    "manifestSha256": "1c474898b9a4406cad56d5412cd5290063dc2a42a44bf3ac83384e6f28b3c210"
+    "manifestUrl": "https://github.com/swm8023/wheelmaker-release/releases/download/v1.3/release-manifest.json",
+    "manifestSha256": "73592022bdaa3c69fddc55bd27d1cf856b4ecbb49789e8fbef810b3a429d91df"
   },
   "desktopExe": {
-    "version": "v1.2",
-    "url": "https://github.com/swm8023/wheelmaker-release/releases/download/v1.2/WheelMakerDesktop.exe",
-    "sha256": "aa57dae59a92cdd32a9327beb8b5a3f5aa24635f2132e37e73cf0c0b542b2e0a"
+    "version": "v1.3",
+    "url": "https://github.com/swm8023/wheelmaker-release/releases/download/v1.3/WheelMakerDesktop.exe",
+    "sha256": "d892d04180a01266266c0a29367391206a80d24705d45918ffef6400f2b41fda"
   },
   "androidApk": {
-    "publishedAt": "2026-07-17T01:12:40.454Z",
-    "sha256": "d5d9df385490aaa9fa39085ee034a7ea5e3cd37bcd4b1ce7c6ebc7825ec3e8a6",
-    "size": 2369931,
-    "sourceSha": "5f40781bca27e5cf762eb6a37b6533a6b4fbb189",
-    "url": "https://github.com/swm8023/wheelmaker-release/releases/download/v1.2/WheelMakerAndroid.apk",
-    "version": "v1.2",
-    "versionCode": 2,
-    "versionName": "1.2"
+    "publishedAt": "2026-07-17T01:19:10.124Z",
+    "sha256": "c25a3e7d45e9a99e7c20660c7153ab4fcf3d71d4f3792279c86ba1273caf8f6a",
+    "size": 2369924,
+    "sourceSha": "fdc460b9019fe16b4c077f9c2f2cd4c3ab877e24",
+    "url": "https://github.com/swm8023/wheelmaker-release/releases/download/v1.3/WheelMakerAndroid.apk",
+    "version": "v1.3",
+    "versionCode": 3,
+    "versionName": "1.3"
   }
 }
