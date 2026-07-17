@@ -539,6 +539,31 @@ function systemdQuote(value) {
   return `"${String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
 }
 
+function windowsElevatedPowerShellScript(script, { preserveRuntimeUser = false } = {}) {
+  const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+  const preserveUser = preserveRuntimeUser
+    ? `$env:WHEELMAKER_RUNTIME_USER = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$runtimeUserLiteral = "'" + $env:WHEELMAKER_RUNTIME_USER.Replace("'", "''") + "'"
+$childScript = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String(${psQuote(encodedScript)}))
+$childScript = '$currentUser = ' + $runtimeUserLiteral + [Environment]::NewLine + $childScript
+$encodedScript = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childScript))`
+    : `$encodedScript = ${psQuote(encodedScript)}`;
+  return `$ErrorActionPreference = 'Stop'
+${preserveUser}
+$process = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+  '-NoProfile',
+  '-NonInteractive',
+  '-ExecutionPolicy',
+  'Bypass',
+  '-EncodedCommand',
+  $encodedScript
+) -Verb RunAs -Wait -PassThru -WindowStyle Hidden
+if ($process.ExitCode -ne 0) {
+  throw "elevated PowerShell failed with exit code $($process.ExitCode)"
+}
+`;
+}
+
 function xmlEscape(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -574,7 +599,13 @@ export function windowsRuntimePlan(paths) {
   const encodedUpdaterCommand = Buffer.from(updaterCommand, 'utf16le').toString('base64');
   const updaterArguments = `-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ${encodedUpdaterCommand}`;
   const script = `$ErrorActionPreference = 'Stop'
-$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$currentUser = [string]$currentUser
+if ([string]::IsNullOrWhiteSpace($currentUser)) {
+  $currentUser = [Environment]::GetEnvironmentVariable('WHEELMAKER_RUNTIME_USER')
+}
+if ([string]::IsNullOrWhiteSpace($currentUser)) {
+  $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+}
 $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -StartWhenAvailable -MultipleInstances IgnoreNew
 $hubAction = New-ScheduledTaskAction -Execute ${psQuote(paths.hub)} -Argument '-d' -WorkingDirectory ${psQuote(paths.home)}
@@ -592,6 +623,8 @@ export function linuxRuntimeFiles(paths) {
   return {
     'wheelmaker-hub.service': `[Unit]
 Description=WheelMaker Hub
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -599,8 +632,6 @@ WorkingDirectory=${systemdQuote(paths.home)}
 ExecStart=${systemdQuote(paths.hub)} -d
 Restart=always
 RestartSec=5
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 [Install]
 WantedBy=default.target
@@ -781,9 +812,50 @@ async function runProcess(
 export function windowsLegacyMigrationScript(paths) {
   return `$ErrorActionPreference = 'Stop'
 $runtimeNames = @('WheelMaker', 'WheelMakerUpdater', 'WheelMakerMonitor')
-foreach ($name in $runtimeNames) {
-  Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
-  Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+
+$registrationRemoval = @'
+$ErrorActionPreference = 'Stop'
+foreach ($name in @('WheelMaker', 'WheelMakerUpdater', 'WheelMakerMonitor')) {
+  $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+  if ($null -ne $task) {
+    Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop
+  }
+  $service = Get-Service -Name $name -ErrorAction SilentlyContinue
+  if ($null -ne $service) {
+    if ($service.Status -ne 'Stopped') {
+      Stop-Service -Name $name -Force -ErrorAction Stop
+    }
+    & sc.exe delete $name | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      throw "failed to delete service $name"
+    }
+  }
+}
+'@
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [Security.Principal.WindowsPrincipal]::new($identity)
+$isAdministrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$existingTasks = @($runtimeNames | ForEach-Object {
+  Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue
+})
+$existingServices = @(Get-Service -Name $runtimeNames -ErrorAction SilentlyContinue)
+if ($existingTasks.Count -gt 0 -or $existingServices.Count -gt 0) {
+  if ($isAdministrator) {
+    & ([ScriptBlock]::Create($registrationRemoval))
+  } else {
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($registrationRemoval))
+    $process = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-EncodedCommand',
+      $encoded
+    ) -Verb RunAs -Wait -PassThru
+    if ($process.ExitCode -ne 0) {
+      throw "elevated legacy registration removal failed with exit code $($process.ExitCode)"
+    }
+  }
 }
 
 $runKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
@@ -805,43 +877,6 @@ Get-CimInstance Win32_Process | Where-Object {
   $legacyBinaries -contains [System.IO.Path]::GetFileName($path).ToLowerInvariant()
 } | ForEach-Object {
   Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop
-}
-
-$existingServices = @(Get-Service -Name $runtimeNames -ErrorAction SilentlyContinue)
-if ($existingServices.Count -gt 0) {
-  $serviceRemoval = @'
-$ErrorActionPreference = 'Stop'
-foreach ($name in @('WheelMaker', 'WheelMakerUpdater', 'WheelMakerMonitor')) {
-  $service = Get-Service -Name $name -ErrorAction SilentlyContinue
-  if ($null -ne $service) {
-    if ($service.Status -ne 'Stopped') {
-      Stop-Service -Name $name -Force -ErrorAction Stop
-    }
-    & sc.exe delete $name | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-      throw "failed to delete service $name"
-    }
-  }
-}
-'@
-  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-  $isAdministrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-  if ($isAdministrator) {
-    & ([ScriptBlock]::Create($serviceRemoval))
-  } else {
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($serviceRemoval))
-    $process = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-EncodedCommand',
-      $encoded
-    ) -Verb RunAs -Wait -PassThru
-    if ($process.ExitCode -ne 0) {
-      throw "elevated legacy service removal failed with exit code $($process.ExitCode)"
-    }
-  }
 }
 `;
 }
@@ -1047,9 +1082,18 @@ export function createRuntimeAdapter({
 }) {
   async function configureRuntime() {
     if (platform === 'win32') {
+      const registrationScript = windowsRuntimePlan(paths).script;
       await runner(
         'powershell',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', windowsRuntimePlan(paths).script],
+        [
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-Command',
+          windowsElevatedPowerShellScript(registrationScript, {
+            preserveRuntimeUser: true,
+          }),
+        ],
         { cwd: paths.home },
       );
       return;
