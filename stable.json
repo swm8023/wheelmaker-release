@@ -1,17 +1,17 @@
 {
   "schema": 1,
-  "version": "v1.5",
-  "publishedAt": "2026-07-17T02:40:08.481Z",
-  "sourceSha": "83ff38516a4e16da3d9fc21fd7256ff41e35c9d2",
+  "version": "v1.6",
+  "publishedAt": "2026-07-17T04:53:14.536Z",
+  "sourceSha": "35df7c5ae33c237cf536bd30bae84f407c1641aa",
   "deploy": {
-    "mjsUrl": "https://raw.githubusercontent.com/swm8023/wheelmaker-release/f78e5508c771e47559e01fa7a13712713aa452b4/deploy.mjs",
+    "mjsUrl": "https://raw.githubusercontent.com/swm8023/wheelmaker-release/79a6cd9bc64088c8d96db659902e808ed4be164c/deploy.mjs",
     "mjsSha256": "1f8ac1927b16bd267ec94ff442f2324501cfd0ffc2f1656dc6635f2a39f3b355",
-    "coreUrl": "https://raw.githubusercontent.com/swm8023/wheelmaker-release/f78e5508c771e47559e01fa7a13712713aa452b4/deploy-core.mjs",
-    "coreSha256": "99ab6e78b87d36950bc6b8a897a982d3d647fae0e16768e3ce73270c0fcef660"
+    "coreUrl": "https://raw.githubusercontent.com/swm8023/wheelmaker-release/79a6cd9bc64088c8d96db659902e808ed4be164c/deploy-core.mjs",
+    "coreSha256": "a8ef9bdf787d6492a99fc9011055ba9c64c8f98b6dbdbad8368d9a985892e7b7"
   },
   "release": {
-    "manifestUrl": "https://github.com/swm8023/wheelmaker-release/releases/download/v1.5/release-manifest.json",
-    "manifestSha256": "c8ce2a52e99ae546877a923e468856df45ba8a055a2bb95e4866e374b0209e11"
+    "manifestUrl": "https://github.com/swm8023/wheelmaker-release/releases/download/v1.6/release-manifest.json",
+    "manifestSha256": "2f84d8b1556273280afacb9734af593bf1a6eaf06a424cf27b760d7591293e2b"
   },
   "desktopExe": {
     "version": "v1.5",
