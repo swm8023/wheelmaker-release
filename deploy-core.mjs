@@ -475,7 +475,9 @@ export async function stageVerifiedRelease({
     stable?.release?.manifestUrl,
     'release manifest',
   );
-  const manifestBytes = await fetchBytes(manifestUrl);
+  const manifestBytes = await fetchBytes(manifestUrl, {
+    label: 'release manifest',
+  });
   if (
     sha256Bytes(manifestBytes) !== stable.release.manifestSha256
   ) {
@@ -499,7 +501,9 @@ export async function stageVerifiedRelease({
     throw new Error(`release artifact metadata is invalid: ${platform}`);
   }
   const artifactUrl = requireHttps(artifact.url, 'release artifact');
-  const archiveBytes = await fetchBytes(artifactUrl);
+  const archiveBytes = await fetchBytes(artifactUrl, {
+    label: `${platform} release package`,
+  });
   await onPhase('verifying');
   if (archiveBytes.length !== artifact.size) {
     throw new Error('release archive size verification failed');
@@ -987,7 +991,9 @@ async function executeDesktopUpdate(deps) {
   const desktopDirectory = join(home, 'desktop');
   const targetPath = join(desktopDirectory, 'WheelMakerDesktop.exe');
   const temporaryPath = `${targetPath}.tmp`;
-  const bytes = Buffer.from(await deps.fetchBytes(pointer.url));
+  const bytes = Buffer.from(await deps.fetchBytes(pointer.url, {
+    label: `Desktop ${pointer.version}`,
+  }));
   await mkdir(desktopDirectory, { recursive: true });
   await rm(temporaryPath, { force: true });
   try {
@@ -1353,6 +1359,13 @@ async function executeDeployment(internalUpdate, deps, runtime) {
       state,
       version: deps.trustedStable.version,
     });
+    const message = {
+      applying: 'Applying Hub and Web',
+      downloading: `Downloading release ${deps.trustedStable.version}`,
+      restarting: 'Starting Hub',
+      verifying: `Verifying release ${deps.trustedStable.version}`,
+    }[state];
+    if (message) deps.reportStatus?.(message);
   };
 
   let deploymentError;
@@ -1393,6 +1406,7 @@ async function executeDeployment(internalUpdate, deps, runtime) {
       normalizeTime(now()),
     );
     if (!internalUpdate) {
+      deps.reportStatus?.('Configuring runtime');
       await runtime.configureRuntime();
       await runtime.writeWrappers();
     }
@@ -1408,7 +1422,9 @@ async function executeDeployment(internalUpdate, deps, runtime) {
       state: 'succeeded',
       version: deps.trustedStable.version,
     });
+    deps.reportStatus?.(`Deployment completed: ${deps.trustedStable.version}`);
   } catch (error) {
+    deps.reportStatus?.(`Deployment failed during ${phase}`);
     if (runtimeStopped && !runtimeStarted) {
       await runtime.start().catch(() => {});
     }
@@ -1445,10 +1461,16 @@ async function executeDeployment(internalUpdate, deps, runtime) {
 
 export async function runCore(args, deps = {}) {
   if (args.length === 1 && args[0] === 'migrate-uninstall') {
-    return executeLegacyMigration(deps);
+    deps.reportStatus?.('Removing legacy services and files');
+    await executeLegacyMigration(deps);
+    deps.reportStatus?.('Legacy migration cleanup completed');
+    return;
   }
   if (args.length === 1 && args[0] === 'desktop-update') {
-    return executeDesktopUpdate(deps);
+    deps.reportStatus?.('Updating WheelMaker Desktop');
+    await executeDesktopUpdate(deps);
+    deps.reportStatus?.('Desktop update completed');
+    return;
   }
   const runtime = resolveRuntime(deps);
   if (args[0] === 'runtime' && args.length === 2) {
@@ -1458,7 +1480,11 @@ export async function runCore(args, deps = {}) {
     if (!runtime || typeof runtime[args[1]] !== 'function') {
       throw new Error(`runtime adapter cannot ${args[1]}`);
     }
-    return runtime[args[1]]();
+    const action = args[1];
+    deps.reportStatus?.(`${action === 'start' ? 'Starting' : 'Stopping'} Hub`);
+    await runtime[action]();
+    deps.reportStatus?.(`Hub ${action === 'start' ? 'started' : 'stopped'}`);
+    return;
   }
   if (args.length === 1 && args[0] === 'update') {
     if (typeof deps.applyUpdate === 'function') {

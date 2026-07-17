@@ -11,6 +11,8 @@ export const STABLE_URL =
 const MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024;
 const MAX_PACKAGE_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
+const PROGRESS_PERCENT_STEP = 5;
+const PROGRESS_BYTES_STEP = 1024 * 1024;
 const ALLOWED_COMMANDS = new Set([
   'desktop-update',
   'migrate-uninstall',
@@ -30,17 +32,67 @@ function requireHttps(value, label) {
   return url;
 }
 
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = -1;
+  do {
+    value /= 1024;
+    unit += 1;
+  } while (value >= 1024 && unit < units.length - 1);
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
+
+export function createDownloadProgressReporter(label, {
+  write = (line) => process.stdout.write(`${line}\n`),
+} = {}) {
+  let lastBytes = -PROGRESS_BYTES_STEP;
+  let lastPercentage = -PROGRESS_PERCENT_STEP;
+  let lastLine;
+  return ({done, downloadedBytes, totalBytes}) => {
+    let line;
+    if (Number.isFinite(totalBytes)) {
+      const percentage = totalBytes === 0
+        ? (done ? 100 : 0)
+        : Math.min(100, Math.floor((downloadedBytes / totalBytes) * 100));
+      if (
+        !done &&
+        downloadedBytes !== 0 &&
+        percentage < lastPercentage + PROGRESS_PERCENT_STEP
+      ) {
+        return;
+      }
+      lastPercentage = percentage;
+      line = `[deploy] Downloading ${label}: ${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes)} (${percentage}%)`;
+    } else {
+      if (
+        !done &&
+        downloadedBytes !== 0 &&
+        downloadedBytes < lastBytes + PROGRESS_BYTES_STEP
+      ) {
+        return;
+      }
+      lastBytes = downloadedBytes;
+      line = `[deploy] Downloading ${label}: ${formatBytes(downloadedBytes)}`;
+    }
+    if (line !== lastLine) {
+      write(line);
+      lastLine = line;
+    }
+  };
+}
+
 export async function fetchHttpsBytes(url, {
   fetchImpl = fetch,
   maxBytes = MAX_DOWNLOAD_BYTES,
   maxRedirects = MAX_REDIRECTS,
-  timeoutMs = 30_000,
+  onProgress,
 } = {}) {
   let currentUrl = requireHttps(url, 'download URL');
   for (let redirects = 0; redirects <= maxRedirects; redirects += 1) {
     const response = await fetchImpl(currentUrl, {
       redirect: 'manual',
-      signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.status >= 300 && response.status < 400) {
       if (redirects === maxRedirects) {
@@ -59,14 +111,44 @@ export async function fetchHttpsBytes(url, {
     if (!response.ok) {
       throw new Error(`HTTPS download failed (${response.status})`);
     }
-    const contentLength = Number(response.headers.get('content-length'));
-    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    const contentLengthHeader = response.headers.get('content-length');
+    const contentLength = contentLengthHeader === null
+      ? Number.NaN
+      : Number(contentLengthHeader);
+    const totalBytes = Number.isFinite(contentLength) && contentLength >= 0
+      ? contentLength
+      : undefined;
+    if (totalBytes !== undefined && totalBytes > maxBytes) {
       throw new Error('HTTPS download exceeds size limit');
     }
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.length > maxBytes) {
-      throw new Error('HTTPS download exceeds size limit');
+    onProgress?.({done: false, downloadedBytes: 0, totalBytes});
+    const chunks = [];
+    let downloadedBytes = 0;
+    if (response.body) {
+      const reader = response.body.getReader();
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        const chunk = Buffer.from(value);
+        downloadedBytes += chunk.length;
+        if (downloadedBytes > maxBytes) {
+          await reader.cancel?.().catch(() => {});
+          throw new Error('HTTPS download exceeds size limit');
+        }
+        chunks.push(chunk);
+        onProgress?.({done: false, downloadedBytes, totalBytes});
+      }
+    } else {
+      const chunk = Buffer.from(await response.arrayBuffer());
+      downloadedBytes = chunk.length;
+      if (downloadedBytes > maxBytes) {
+        throw new Error('HTTPS download exceeds size limit');
+      }
+      chunks.push(chunk);
+      onProgress?.({done: false, downloadedBytes, totalBytes});
     }
+    onProgress?.({done: true, downloadedBytes, totalBytes});
+    const bytes = Buffer.concat(chunks, downloadedBytes);
     return bytes;
   }
   throw new Error('unreachable HTTPS download state');
@@ -111,7 +193,7 @@ function validateStable(stable) {
 }
 
 async function downloadVerifiedScript(deps, url, expectedSha256, label) {
-  const bytes = await deps.fetchBytes(url);
+  const bytes = await deps.fetchBytes(url, {label});
   if (sha256Bytes(bytes) !== expectedSha256) {
     throw new Error(`${label} SHA-256 verification failed`);
   }
@@ -125,14 +207,18 @@ export async function runLauncher(rawArgs, deps = createDefaultLauncherDependenc
     deps.onEvent?.('promote-launcher');
   }
 
-  const stableBytes = await deps.fetchBytes(deps.stableUrl);
+  deps.reportStatus?.('Checking latest release');
+  const stableBytes = await deps.fetchBytes(deps.stableUrl, {label: 'stable.json'});
   const stable = validateStable(JSON.parse(stableBytes.toString('utf8')));
+  deps.reportStatus?.(`Latest release: ${stable.version}`);
 
   const localLauncher = await deps.readLocalFile('deploy.mjs');
+  let scriptsChanged = false;
   if (
     !localLauncher ||
     sha256Bytes(localLauncher) !== stable.deploy.mjsSha256
   ) {
+    deps.reportStatus?.('Updating deploy.mjs');
     const launcher = await downloadVerifiedScript(
       deps,
       stable.deploy.mjsUrl,
@@ -141,10 +227,12 @@ export async function runLauncher(rawArgs, deps = createDefaultLauncherDependenc
     );
     await deps.stageLauncher(launcher);
     deps.onEvent?.('stage-launcher');
+    scriptsChanged = true;
   }
 
   const localCore = await deps.readLocalFile('deploy-core.mjs');
   if (!localCore || sha256Bytes(localCore) !== stable.deploy.coreSha256) {
+    deps.reportStatus?.('Updating deploy-core.mjs');
     const core = await downloadVerifiedScript(
       deps,
       stable.deploy.coreUrl,
@@ -153,7 +241,21 @@ export async function runLauncher(rawArgs, deps = createDefaultLauncherDependenc
     );
     await deps.replaceCore(core);
     deps.onEvent?.('replace-core');
+    scriptsChanged = true;
   }
+
+  if (!scriptsChanged) deps.reportStatus?.('Deployment scripts are current');
+
+  const operation = args.length === 0
+    ? `Starting deployment of ${stable.version}`
+    : args[0] === 'update'
+      ? `Starting update to ${stable.version}`
+      : args[0] === 'migrate-uninstall'
+        ? 'Starting legacy migration cleanup'
+        : args[0] === 'desktop-update'
+          ? 'Starting Desktop update'
+          : `Running ${args.join(' ')}`;
+  deps.reportStatus?.(operation);
 
   return deps.runCore(args, { stable, stableBytes });
 }
@@ -189,10 +291,18 @@ export function createDefaultLauncherDependencies({
   const launcherPath = join(installDirectory, 'deploy.mjs');
   const pendingLauncherPath = join(installDirectory, 'deploy.next.mjs');
   const corePath = join(installDirectory, 'deploy-core.mjs');
+  const reportStatus = (message) => process.stdout.write(`[deploy] ${message}\n`);
+  const fetchWithProgress = (url, {label = 'file', maxBytes}) =>
+    fetchHttpsBytes(url, {
+      maxBytes,
+      onProgress: createDownloadProgressReporter(label),
+    });
   return {
     stableUrl: STABLE_URL,
-    fetchBytes: fetchHttpsBytes,
+    fetchBytes: (url, {label} = {}) =>
+      fetchWithProgress(url, {label, maxBytes: MAX_DOWNLOAD_BYTES}),
     onEvent() {},
+    reportStatus,
     async promotePendingLauncher() {
       const pending = await readFileIfPresent(pendingLauncherPath);
       if (!pending) {
@@ -217,9 +327,13 @@ export function createDefaultLauncherDependencies({
         throw new Error('deploy-core.mjs does not export runCore');
       }
       return core.runCore(args, {
-        fetchBytes: (url) =>
-          fetchHttpsBytes(url, { maxBytes: MAX_PACKAGE_DOWNLOAD_BYTES }),
+        fetchBytes: (url, {label} = {}) =>
+          fetchWithProgress(url, {
+            label,
+            maxBytes: MAX_PACKAGE_DOWNLOAD_BYTES,
+          }),
         installDirectory,
+        reportStatus,
         trustedStable: context.stable,
         trustedStableBytes: context.stableBytes,
       });
@@ -240,7 +354,7 @@ if (isMain) {
     throw new Error(`Node.js 22+ is required; found ${process.versions.node}`);
   }
   await runLauncher(process.argv.slice(2)).catch((error) => {
-    process.stderr.write(`${error.message}\n`);
+    process.stderr.write(`[deploy] Failed: ${error.message}\n`);
     process.exitCode = 1;
   });
 }
