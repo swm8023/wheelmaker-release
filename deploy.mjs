@@ -16,7 +16,7 @@ const ALLOWED_COMMANDS = new Set([
   'migrate-uninstall',
   'update',
 ]);
-const RUNTIME_ACTIONS = new Set(['restart', 'start', 'status', 'stop']);
+const RUNTIME_ACTIONS = new Set(['start', 'stop']);
 
 function sha256Bytes(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
