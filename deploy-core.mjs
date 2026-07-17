@@ -933,7 +933,7 @@ async function executeLegacyMigration(deps) {
   }
   for (const directory of [
     join(paths.home, 'build'),
-    join(paths.home, 'cache', 'go-build'),
+    join(paths.home, 'cache'),
     join(paths.home, 'mobile'),
     join(paths.home, 'tmp'),
   ]) {
